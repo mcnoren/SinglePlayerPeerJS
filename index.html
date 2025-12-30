@@ -3,34 +3,52 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Neon Sentinel - Dual Screen Game</title>
+    <title>Neon Sentinel - Fixed</title>
     <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
     <style>
         :root { --neon-blue: #0ff; --neon-red: #f00; --neon-green: #0f0; --bg: #050510; }
         body { margin: 0; overflow: hidden; background: var(--bg); color: white; font-family: 'Courier New', Courier, monospace; touch-action: none; }
         
-        /* UI Screens */
-        #menu, #host-screen, #client-screen { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
-        .active { display: flex !important; flex-direction: column; align-items: center; justify-content: center; }
+        /* --- FIXED VISIBILITY LOGIC --- */
+        /* All screens are hidden by default */
+        .screen { 
+            display: none; 
+            position: absolute; 
+            top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            background: var(--bg);
+            z-index: 1;
+        }
+
+        /* This class forces the screen to show */
+        .screen.active { 
+            display: flex !important; 
+            flex-direction: column; 
+            align-items: center; 
+            justify-content: center;
+            z-index: 10;
+        }
         
         /* Menu Styling */
-        h1 { text-shadow: 0 0 10px var(--neon-blue); font-size: 2rem; text-align: center; }
+        h1 { text-shadow: 0 0 10px var(--neon-blue); font-size: 2rem; text-align: center; pointer-events: none; }
         button { background: transparent; border: 2px solid var(--neon-blue); color: var(--neon-blue); padding: 15px 30px; font-size: 1.2rem; margin: 10px; cursor: pointer; text-transform: uppercase; box-shadow: 0 0 10px var(--neon-blue); transition: 0.2s; }
         button:active { background: var(--neon-blue); color: black; }
         input { background: transparent; border: 2px solid var(--neon-green); color: white; padding: 10px; font-size: 1.2rem; text-align: center; width: 200px; margin-bottom: 20px; }
 
         /* Host (TV) Styling */
         canvas { display: block; }
-        #overlay { position: absolute; top: 20px; left: 20px; pointer-events: none; }
+        #overlay { position: absolute; top: 20px; left: 20px; pointer-events: none; z-index: 20; }
         .hud-text { font-size: 1.5rem; text-shadow: 0 0 5px white; margin-bottom: 10px; }
-        #id-display { position: absolute; bottom: 20px; right: 20px; font-size: 1rem; color: #666; }
+        #id-display { position: absolute; bottom: 20px; right: 20px; font-size: 1rem; color: #666; z-index: 20; }
 
         /* Client (Phone) Styling */
-        #client-screen { background: #111; display: grid; grid-template-rows: 1fr 1fr; gap: 10px; padding: 10px; box-sizing: border-box; }
+        #client-screen { background: #111; display: none; } /* Default hidden, managed by .active */
+        #client-screen.active { display: grid !important; grid-template-rows: 1fr 1fr; gap: 10px; padding: 10px; box-sizing: border-box; }
+        
         .control-row { display: flex; width: 100%; height: 100%; gap: 10px; }
         
         /* Trackpad */
-        #trackpad { background: #222; border: 1px dashed var(--neon-blue); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #555; touch-action: none; grid-row: 1 / 2; }
+        #trackpad { background: #222; border: 1px dashed var(--neon-blue); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #555; touch-action: none; grid-row: 1 / 2; user-select: none; }
         
         /* Bottom Controls */
         .bottom-panel { grid-row: 2 / 3; display: flex; flex-direction: column; gap: 10px; }
@@ -41,7 +59,7 @@
         #shield-fill { background: var(--neon-blue); width: 100%; }
 
         .buttons { display: flex; flex: 1; gap: 10px; }
-        .big-btn { flex: 1; border-radius: 10px; font-weight: bold; font-size: 1.5rem; border: 2px solid; }
+        .big-btn { flex: 1; border-radius: 10px; font-weight: bold; font-size: 1.5rem; border: 2px solid; touch-action: manipulation; }
         
         #btn-fire { border-color: var(--neon-red); color: var(--neon-red); background: rgba(255, 0, 0, 0.1); }
         #btn-fire.overheated { background: #300; border-color: #500; color: #500; pointer-events: none; }
@@ -57,7 +75,7 @@
 </head>
 <body>
 
-    <div id="menu" class="active">
+    <div id="menu" class="screen active">
         <h1>NEON SENTINEL</h1>
         <button onclick="startHost()">Start as Host (TV)</button>
         <br>
@@ -68,7 +86,7 @@
         </div>
     </div>
 
-    <div id="host-screen">
+    <div id="host-screen" class="screen">
         <canvas id="gameCanvas"></canvas>
         <div id="overlay">
             <div class="hud-text">SCORE: <span id="score">0</span></div>
@@ -83,7 +101,7 @@
         </div>
     </div>
 
-    <div id="client-screen">
+    <div id="client-screen" class="screen">
         <div id="trackpad">SWIPE TO AIM</div>
         <div class="bottom-panel">
             <div class="gauges">
@@ -107,13 +125,11 @@
         let peer, conn;
         let isHost = false;
         
-        // Game State
         const state = {
             width: 0, height: 0,
-            cursor: { x: 0.5, y: 0.5 }, // 0.0 to 1.0 normalized
+            cursor: { x: 0.5, y: 0.5 },
             bullets: [],
             enemies: [],
-            particles: [],
             score: 0,
             health: 100,
             heat: 0,
@@ -130,13 +146,14 @@
             $('join-form').style.display = 'flex';
         }
 
-        /* ================= HOST LOGIC (TV) ================= */
+        /* ================= HOST LOGIC ================= */
         function startHost() {
             $('menu').classList.remove('active');
             $('host-screen').classList.add('active');
             isHost = true;
             
             const myId = generateId();
+            // Create Peer with random ID
             peer = new Peer(myId);
             
             peer.on('open', (id) => {
@@ -152,9 +169,11 @@
                     handleInput(data);
                 });
 
-                // Start Game Loop if not started
                 if(!animationId) requestAnimationFrame(gameLoop);
             });
+            
+            // Error handling for peer
+            peer.on('error', (err) => console.error(err));
 
             setupCanvas();
         }
@@ -171,9 +190,8 @@
 
         function handleInput(data) {
             if (data.type === 'move') {
-                state.cursor.x += data.dx * 0.002; // Sensitivity
+                state.cursor.x += data.dx * 0.002;
                 state.cursor.y += data.dy * 0.002;
-                // Clamp
                 state.cursor.x = Math.max(0, Math.min(1, state.cursor.x));
                 state.cursor.y = Math.max(0, Math.min(1, state.cursor.y));
             }
@@ -191,7 +209,7 @@
         const ctx = $('gameCanvas').getContext('2d');
 
         function spawnEnemy() {
-            const side = Math.floor(Math.random() * 4); // 0:top, 1:right, 2:bottom, 3:left
+            const side = Math.floor(Math.random() * 4);
             let x, y;
             if(side === 0) { x = Math.random() * state.width; y = -50; }
             if(side === 1) { x = state.width + 50; y = Math.random() * state.height; }
@@ -213,8 +231,7 @@
             const dt = timestamp - state.lastFrame;
             state.lastFrame = timestamp;
 
-            // Clear
-            ctx.fillStyle = 'rgba(5, 5, 16, 0.3)'; // Trails
+            ctx.fillStyle = 'rgba(5, 5, 16, 0.3)';
             ctx.fillRect(0, 0, state.width, state.height);
 
             if (state.health <= 0) {
@@ -223,13 +240,11 @@
                 return; 
             }
 
-            // Logic Updates
             if (Math.random() < 0.02 + (state.wave * 0.005)) spawnEnemy();
 
-            // Heat Management
             if (state.isFiring && !state.isOverheated && !state.isShielding) {
                 state.heat += 1.5;
-                if(timestamp % 10 < 2) { // Fire rate limiter visually
+                if(timestamp % 10 < 2) {
                     state.bullets.push({
                         x: state.width/2, y: state.height/2,
                         vx: (state.cursor.x * state.width - state.width/2) * 0.05,
@@ -242,7 +257,6 @@
 
             if (state.heat >= 100) state.isOverheated = true;
 
-            // Shield Management
             if (state.isShielding && state.shieldEnergy > 0) {
                 state.shieldEnergy -= 0.5;
             } else if (!state.isShielding) {
@@ -250,33 +264,21 @@
             }
             if(state.shieldEnergy <= 0) state.isShielding = false;
 
-            // Update Bullets
-            ctx.shadowBlur = 10;
-            ctx.shadowColor = '#0ff';
-            ctx.fillStyle = '#0ff';
+            ctx.shadowBlur = 10; ctx.shadowColor = '#0ff'; ctx.fillStyle = '#0ff';
             state.bullets.forEach((b, i) => {
-                b.x += b.vx;
-                b.y += b.vy;
-                ctx.beginPath();
-                ctx.arc(b.x, b.y, 4, 0, Math.PI*2);
-                ctx.fill();
+                b.x += b.vx; b.y += b.vy;
+                ctx.beginPath(); ctx.arc(b.x, b.y, 4, 0, Math.PI*2); ctx.fill();
                 if(b.x < 0 || b.x > state.width || b.y < 0 || b.y > state.height) state.bullets.splice(i, 1);
             });
 
-            // Update Enemies
             ctx.shadowBlur = 0;
             state.enemies.forEach((e, i) => {
-                e.x += e.vx;
-                e.y += e.vy;
-                
-                // Draw Enemy
-                ctx.save();
-                ctx.translate(e.x, e.y);
+                e.x += e.vx; e.y += e.vy;
+                ctx.save(); ctx.translate(e.x, e.y);
                 ctx.fillStyle = '#f00';
                 ctx.fillRect(-e.size/2, -e.size/2, e.size, e.size);
                 ctx.restore();
 
-                // Collision with Bullets
                 state.bullets.forEach((b, bi) => {
                     const dist = Math.hypot(b.x - e.x, b.y - e.y);
                     if(dist < e.size) {
@@ -285,25 +287,21 @@
                         if(e.hp <= 0) {
                             state.enemies.splice(i, 1);
                             state.score += 100;
-                            // Explosion particles could go here
                         }
                     }
                 });
 
-                // Collision with Player (Center)
                 const distToCenter = Math.hypot((state.width/2) - e.x, (state.height/2) - e.y);
                 if(distToCenter < 50) {
                     state.enemies.splice(i, 1);
                     if(state.isShielding && state.shieldEnergy > 0) {
-                        state.shieldEnergy -= 20; // Shield takes hit
+                        state.shieldEnergy -= 20;
                     } else {
                         state.health -= 10;
-                        if(window.navigator.vibrate) window.navigator.vibrate(200); // Only works if host is mobile/tablet
                     }
                 }
             });
 
-            // Draw Player/Base
             ctx.shadowBlur = 20;
             ctx.shadowColor = state.isShielding ? 'cyan' : 'blue';
             ctx.strokeStyle = state.isShielding ? 'cyan' : 'white';
@@ -311,12 +309,8 @@
             ctx.beginPath();
             ctx.arc(state.width/2, state.height/2, 40, 0, Math.PI*2);
             ctx.stroke();
-            if(state.isShielding) {
-                ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
-                ctx.fill();
-            }
+            if(state.isShielding) { ctx.fillStyle = 'rgba(0, 255, 255, 0.2)'; ctx.fill(); }
 
-            // Draw Cursor
             const cx = state.cursor.x * state.width;
             const cy = state.cursor.y * state.height;
             ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
@@ -325,29 +319,21 @@
             ctx.moveTo(cx, cy - 20); ctx.lineTo(cx, cy + 20);
             ctx.stroke();
 
-            // Update HUD
             $('score').innerText = state.score;
             $('health').innerText = state.health;
             
-            // Sync with Client (Every 5 frames to save bandwidth, or essential changes)
             if (timestamp % 5 === 0 && conn && conn.open) {
                 sendToClient({
-                    type: 'status',
-                    heat: state.heat,
-                    shield: state.shieldEnergy,
-                    overheated: state.isOverheated,
-                    health: state.health // For vibration triggers etc
+                    type: 'status', heat: state.heat, shield: state.shieldEnergy, overheated: state.isOverheated, health: state.health
                 });
             }
 
             requestAnimationFrame(gameLoop);
         }
 
-        function sendToClient(data) {
-            if(conn && conn.open) conn.send(data);
-        }
+        function sendToClient(data) { if(conn && conn.open) conn.send(data); }
 
-        /* ================= CLIENT LOGIC (PHONE) ================= */
+        /* ================= CLIENT LOGIC ================= */
         function startClient() {
             const hostId = $('host-id-input').value;
             if(!hostId) return alert("Enter Host ID");
@@ -355,100 +341,59 @@
             $('menu').classList.remove('active');
             $('client-screen').classList.add('active');
 
-            peer = new Peer(); // Auto ID
+            peer = new Peer();
             peer.on('open', () => {
                 conn = peer.connect(hostId);
-                
                 conn.on('open', () => {
                     console.log("Connected to Host");
                     initClientControls();
                 });
-
-                conn.on('data', (data) => {
-                    updateClientUI(data);
-                });
-                
+                conn.on('data', updateClientUI);
                 conn.on('error', (err) => alert("Connection Error: " + err));
             });
         }
 
         function initClientControls() {
-            // Trackpad
             const trackpad = $('trackpad');
             let lastX = null, lastY = null;
-
             trackpad.addEventListener('touchstart', (e) => {
-                lastX = e.touches[0].clientX;
-                lastY = e.touches[0].clientY;
+                lastX = e.touches[0].clientX; lastY = e.touches[0].clientY;
             }, {passive: false});
-
             trackpad.addEventListener('touchmove', (e) => {
-                e.preventDefault(); // Prevent scroll
-                const cx = e.touches[0].clientX;
-                const cy = e.touches[0].clientY;
-                const dx = cx - lastX;
-                const dy = cy - lastY;
-                lastX = cx;
-                lastY = cy;
-                conn.send({ type: 'move', dx, dy });
+                e.preventDefault();
+                const cx = e.touches[0].clientX; const cy = e.touches[0].clientY;
+                conn.send({ type: 'move', dx: cx - lastX, dy: cy - lastY });
+                lastX = cx; lastY = cy;
             }, {passive: false});
 
-            // Fire Button
             const btnFire = $('btn-fire');
-            btnFire.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                conn.send({ type: 'fireState', val: true });
-            });
-            btnFire.addEventListener('touchend', (e) => {
-                e.preventDefault();
-                conn.send({ type: 'fireState', val: false });
-            });
+            btnFire.addEventListener('touchstart', (e) => { e.preventDefault(); conn.send({ type: 'fireState', val: true }); });
+            btnFire.addEventListener('touchend', (e) => { e.preventDefault(); conn.send({ type: 'fireState', val: false }); });
 
-            // Shield Button
             const btnShield = $('btn-shield');
-            btnShield.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                conn.send({ type: 'shieldState', val: true });
-                btnShield.classList.add('active-shield');
-            });
-            btnShield.addEventListener('touchend', (e) => {
-                e.preventDefault();
-                conn.send({ type: 'shieldState', val: false });
-                btnShield.classList.remove('active-shield');
-            });
+            btnShield.addEventListener('touchstart', (e) => { e.preventDefault(); conn.send({ type: 'shieldState', val: true }); btnShield.classList.add('active-shield'); });
+            btnShield.addEventListener('touchend', (e) => { e.preventDefault(); conn.send({ type: 'shieldState', val: false }); btnShield.classList.remove('active-shield'); });
 
-            // Vent Button
             const btnVent = $('btn-vent');
-            btnVent.addEventListener('touchstart', (e) => {
-                conn.send({ type: 'vent' });
-                if(navigator.vibrate) navigator.vibrate(50);
-            });
+            btnVent.addEventListener('touchstart', (e) => { conn.send({ type: 'vent' }); if(navigator.vibrate) navigator.vibrate(50); });
         }
 
         function updateClientUI(data) {
             if (data.type === 'status') {
-                // Update Heat Bar
                 $('heat-fill').style.width = data.heat + '%';
                 $('shield-fill').style.width = data.shield + '%';
-
                 const btnFire = $('btn-fire');
-                const btnVent = $('btn-vent');
-
                 if (data.overheated) {
                     btnFire.classList.add('overheated');
                     btnFire.innerText = "OVERHEAT";
-                    btnVent.style.display = "block"; // Show vent button
-                    if(navigator.vibrate) navigator.vibrate(50); // Haptic feedback warning
+                    $('btn-vent').style.display = "block";
+                    if(navigator.vibrate) navigator.vibrate(50);
                 } else {
                     btnFire.classList.remove('overheated');
                     btnFire.innerText = "FIRE";
-                    btnVent.style.display = "none";
+                    $('btn-vent').style.display = "none";
                 }
-
-                // Haptic on damage
-                if (data.health < 100 && Math.random() < 0.1) {
-                    if(navigator.vibrate) navigator.vibrate(200);
-                }
+                if (data.health < 100 && Math.random() < 0.1 && navigator.vibrate) navigator.vibrate(200);
             }
         }
     </script>
