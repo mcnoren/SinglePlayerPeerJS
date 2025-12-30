@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Neon Sentinel - Dual Screen Game</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        :root { --neon-blue: #0ff; --neon-red: #f00; --neon-green: #0f0; --bg: #050510; }
+        body { margin: 0; overflow: hidden; background: var(--bg); color: white; font-family: 'Courier New', Courier, monospace; touch-action: none; }
+        
+        /* UI Screens */
+        #menu, #host-screen, #client-screen { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+        .active { display: flex !important; flex-direction: column; align-items: center; justify-content: center; }
+        
+        /* Menu Styling */
+        h1 { text-shadow: 0 0 10px var(--neon-blue); font-size: 2rem; text-align: center; }
+        button { background: transparent; border: 2px solid var(--neon-blue); color: var(--neon-blue); padding: 15px 30px; font-size: 1.2rem; margin: 10px; cursor: pointer; text-transform: uppercase; box-shadow: 0 0 10px var(--neon-blue); transition: 0.2s; }
+        button:active { background: var(--neon-blue); color: black; }
+        input { background: transparent; border: 2px solid var(--neon-green); color: white; padding: 10px; font-size: 1.2rem; text-align: center; width: 200px; margin-bottom: 20px; }
+
+        /* Host (TV) Styling */
+        canvas { display: block; }
+        #overlay { position: absolute; top: 20px; left: 20px; pointer-events: none; }
+        .hud-text { font-size: 1.5rem; text-shadow: 0 0 5px white; margin-bottom: 10px; }
+        #id-display { position: absolute; bottom: 20px; right: 20px; font-size: 1rem; color: #666; }
+
+        /* Client (Phone) Styling */
+        #client-screen { background: #111; display: grid; grid-template-rows: 1fr 1fr; gap: 10px; padding: 10px; box-sizing: border-box; }
+        .control-row { display: flex; width: 100%; height: 100%; gap: 10px; }
+        
+        /* Trackpad */
+        #trackpad { background: #222; border: 1px dashed var(--neon-blue); border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #555; touch-action: none; grid-row: 1 / 2; }
+        
+        /* Bottom Controls */
+        .bottom-panel { grid-row: 2 / 3; display: flex; flex-direction: column; gap: 10px; }
+        .gauges { display: flex; height: 30px; gap: 10px; }
+        .bar-container { flex: 1; background: #333; border: 1px solid #555; position: relative; }
+        .bar-fill { height: 100%; transition: width 0.1s; }
+        #heat-fill { background: var(--neon-red); width: 0%; }
+        #shield-fill { background: var(--neon-blue); width: 100%; }
+
+        .buttons { display: flex; flex: 1; gap: 10px; }
+        .big-btn { flex: 1; border-radius: 10px; font-weight: bold; font-size: 1.5rem; border: 2px solid; }
+        
+        #btn-fire { border-color: var(--neon-red); color: var(--neon-red); background: rgba(255, 0, 0, 0.1); }
+        #btn-fire.overheated { background: #300; border-color: #500; color: #500; pointer-events: none; }
+        
+        #btn-vent { border-color: orange; color: orange; display: none; background: rgba(255, 165, 0, 0.1); }
+        
+        #btn-shield { border-color: var(--neon-blue); color: var(--neon-blue); background: rgba(0, 255, 255, 0.1); font-size: 1rem; }
+        #btn-shield.active-shield { background: var(--neon-blue); color: black; }
+
+        /* Game Over */
+        #game-over { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); color: white; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 100; }
+    </style>
+</head>
+<body>
+
+    <div id="menu" class="active">
+        <h1>NEON SENTINEL</h1>
+        <button onclick="startHost()">Start as Host (TV)</button>
+        <br>
+        <button onclick="showJoin()">Join as Controller</button>
+        <div id="join-form" style="display:none; flex-direction: column; align-items: center;">
+            <input type="text" id="host-id-input" placeholder="Enter Host ID">
+            <button onclick="startClient()">Connect</button>
+        </div>
+    </div>
+
+    <div id="host-screen">
+        <canvas id="gameCanvas"></canvas>
+        <div id="overlay">
+            <div class="hud-text">SCORE: <span id="score">0</span></div>
+            <div class="hud-text">HEALTH: <span id="health">100</span>%</div>
+            <div class="hud-text" style="font-size: 1rem; color: #aaa;">WAVES: <span id="wave">1</span></div>
+        </div>
+        <div id="id-display">Waiting for controller...</div>
+        <div id="game-over">
+            <h1 style="color: var(--neon-red)">SYSTEM FAILURE</h1>
+            <h2>Final Score: <span id="final-score">0</span></h2>
+            <button onclick="location.reload()">Reboot System</button>
+        </div>
+    </div>
+
+    <div id="client-screen">
+        <div id="trackpad">SWIPE TO AIM</div>
+        <div class="bottom-panel">
+            <div class="gauges">
+                <div class="bar-container"><div id="heat-fill" class="bar-fill"></div></div>
+                <div class="bar-container"><div id="shield-fill" class="bar-fill"></div></div>
+            </div>
+            <div class="buttons">
+                <button id="btn-shield" class="big-btn">SHIELD</button>
+                <button id="btn-fire" class="big-btn">FIRE</button>
+                <button id="btn-vent" class="big-btn">VENT HEAT!</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* --- UTILS --- */
+        const generateId = () => Math.random().toString(36).substr(2, 4).toUpperCase();
+        const $ = id => document.getElementById(id);
+
+        /* --- STATE --- */
+        let peer, conn;
+        let isHost = false;
+        
+        // Game State
+        const state = {
+            width: 0, height: 0,
+            cursor: { x: 0.5, y: 0.5 }, // 0.0 to 1.0 normalized
+            bullets: [],
+            enemies: [],
+            particles: [],
+            score: 0,
+            health: 100,
+            heat: 0,
+            shieldEnergy: 100,
+            isShielding: false,
+            isFiring: false,
+            isOverheated: false,
+            wave: 1,
+            lastFrame: 0
+        };
+
+        /* --- MENU LOGIC --- */
+        function showJoin() {
+            $('join-form').style.display = 'flex';
+        }
+
+        /* ================= HOST LOGIC (TV) ================= */
+        function startHost() {
+            $('menu').classList.remove('active');
+            $('host-screen').classList.add('active');
+            isHost = true;
+            
+            const myId = generateId();
+            peer = new Peer(myId);
+            
+            peer.on('open', (id) => {
+                $('id-display').innerText = `GAME ID: ${id} (Enter this on phone)`;
+            });
+
+            peer.on('connection', (c) => {
+                conn = c;
+                $('id-display').innerText = "CONTROLLER CONNECTED";
+                $('id-display').style.color = "#0f0";
+                
+                conn.on('data', (data) => {
+                    handleInput(data);
+                });
+
+                // Start Game Loop if not started
+                if(!animationId) requestAnimationFrame(gameLoop);
+            });
+
+            setupCanvas();
+        }
+
+        function setupCanvas() {
+            const canvas = $('gameCanvas');
+            state.width = canvas.width = window.innerWidth;
+            state.height = canvas.height = window.innerHeight;
+            window.addEventListener('resize', () => {
+                state.width = canvas.width = window.innerWidth;
+                state.height = canvas.height = window.innerHeight;
+            });
+        }
+
+        function handleInput(data) {
+            if (data.type === 'move') {
+                state.cursor.x += data.dx * 0.002; // Sensitivity
+                state.cursor.y += data.dy * 0.002;
+                // Clamp
+                state.cursor.x = Math.max(0, Math.min(1, state.cursor.x));
+                state.cursor.y = Math.max(0, Math.min(1, state.cursor.y));
+            }
+            if (data.type === 'fireState') state.isFiring = data.val;
+            if (data.type === 'shieldState') state.isShielding = data.val;
+            if (data.type === 'vent') {
+                state.heat = 0;
+                state.isOverheated = false;
+                sendToClient({ type: 'status', heat: 0, overheated: false });
+            }
+        }
+
+        /* ================= GAME ENGINE ================= */
+        let animationId;
+        const ctx = $('gameCanvas').getContext('2d');
+
+        function spawnEnemy() {
+            const side = Math.floor(Math.random() * 4); // 0:top, 1:right, 2:bottom, 3:left
+            let x, y;
+            if(side === 0) { x = Math.random() * state.width; y = -50; }
+            if(side === 1) { x = state.width + 50; y = Math.random() * state.height; }
+            if(side === 2) { x = Math.random() * state.width; y = state.height + 50; }
+            if(side === 3) { x = -50; y = Math.random() * state.height; }
+
+            const angle = Math.atan2((state.height/2) - y, (state.width/2) - x);
+            
+            state.enemies.push({
+                x, y, 
+                vx: Math.cos(angle) * (2 + state.wave * 0.5), 
+                vy: Math.sin(angle) * (2 + state.wave * 0.5),
+                size: 20,
+                hp: 1 + Math.floor(state.wave / 3)
+            });
+        }
+
+        function gameLoop(timestamp) {
+            const dt = timestamp - state.lastFrame;
+            state.lastFrame = timestamp;
+
+            // Clear
+            ctx.fillStyle = 'rgba(5, 5, 16, 0.3)'; // Trails
+            ctx.fillRect(0, 0, state.width, state.height);
+
+            if (state.health <= 0) {
+                $('game-over').style.display = 'flex';
+                $('final-score').innerText = state.score;
+                return; 
+            }
+
+            // Logic Updates
+            if (Math.random() < 0.02 + (state.wave * 0.005)) spawnEnemy();
+
+            // Heat Management
+            if (state.isFiring && !state.isOverheated && !state.isShielding) {
+                state.heat += 1.5;
+                if(timestamp % 10 < 2) { // Fire rate limiter visually
+                    state.bullets.push({
+                        x: state.width/2, y: state.height/2,
+                        vx: (state.cursor.x * state.width - state.width/2) * 0.05,
+                        vy: (state.cursor.y * state.height - state.height/2) * 0.05
+                    });
+                }
+            } else {
+                state.heat = Math.max(0, state.heat - 0.5);
+            }
+
+            if (state.heat >= 100) state.isOverheated = true;
+
+            // Shield Management
+            if (state.isShielding && state.shieldEnergy > 0) {
+                state.shieldEnergy -= 0.5;
+            } else if (!state.isShielding) {
+                state.shieldEnergy = Math.min(100, state.shieldEnergy + 0.2);
+            }
+            if(state.shieldEnergy <= 0) state.isShielding = false;
+
+            // Update Bullets
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#0ff';
+            ctx.fillStyle = '#0ff';
+            state.bullets.forEach((b, i) => {
+                b.x += b.vx;
+                b.y += b.vy;
+                ctx.beginPath();
+                ctx.arc(b.x, b.y, 4, 0, Math.PI*2);
+                ctx.fill();
+                if(b.x < 0 || b.x > state.width || b.y < 0 || b.y > state.height) state.bullets.splice(i, 1);
+            });
+
+            // Update Enemies
+            ctx.shadowBlur = 0;
+            state.enemies.forEach((e, i) => {
+                e.x += e.vx;
+                e.y += e.vy;
+                
+                // Draw Enemy
+                ctx.save();
+                ctx.translate(e.x, e.y);
+                ctx.fillStyle = '#f00';
+                ctx.fillRect(-e.size/2, -e.size/2, e.size, e.size);
+                ctx.restore();
+
+                // Collision with Bullets
+                state.bullets.forEach((b, bi) => {
+                    const dist = Math.hypot(b.x - e.x, b.y - e.y);
+                    if(dist < e.size) {
+                        state.bullets.splice(bi, 1);
+                        e.hp--;
+                        if(e.hp <= 0) {
+                            state.enemies.splice(i, 1);
+                            state.score += 100;
+                            // Explosion particles could go here
+                        }
+                    }
+                });
+
+                // Collision with Player (Center)
+                const distToCenter = Math.hypot((state.width/2) - e.x, (state.height/2) - e.y);
+                if(distToCenter < 50) {
+                    state.enemies.splice(i, 1);
+                    if(state.isShielding && state.shieldEnergy > 0) {
+                        state.shieldEnergy -= 20; // Shield takes hit
+                    } else {
+                        state.health -= 10;
+                        if(window.navigator.vibrate) window.navigator.vibrate(200); // Only works if host is mobile/tablet
+                    }
+                }
+            });
+
+            // Draw Player/Base
+            ctx.shadowBlur = 20;
+            ctx.shadowColor = state.isShielding ? 'cyan' : 'blue';
+            ctx.strokeStyle = state.isShielding ? 'cyan' : 'white';
+            ctx.lineWidth = 3;
+            ctx.beginPath();
+            ctx.arc(state.width/2, state.height/2, 40, 0, Math.PI*2);
+            ctx.stroke();
+            if(state.isShielding) {
+                ctx.fillStyle = 'rgba(0, 255, 255, 0.2)';
+                ctx.fill();
+            }
+
+            // Draw Cursor
+            const cx = state.cursor.x * state.width;
+            const cy = state.cursor.y * state.height;
+            ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+            ctx.beginPath();
+            ctx.moveTo(cx - 20, cy); ctx.lineTo(cx + 20, cy);
+            ctx.moveTo(cx, cy - 20); ctx.lineTo(cx, cy + 20);
+            ctx.stroke();
+
+            // Update HUD
+            $('score').innerText = state.score;
+            $('health').innerText = state.health;
+            
+            // Sync with Client (Every 5 frames to save bandwidth, or essential changes)
+            if (timestamp % 5 === 0 && conn && conn.open) {
+                sendToClient({
+                    type: 'status',
+                    heat: state.heat,
+                    shield: state.shieldEnergy,
+                    overheated: state.isOverheated,
+                    health: state.health // For vibration triggers etc
+                });
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function sendToClient(data) {
+            if(conn && conn.open) conn.send(data);
+        }
+
+        /* ================= CLIENT LOGIC (PHONE) ================= */
+        function startClient() {
+            const hostId = $('host-id-input').value;
+            if(!hostId) return alert("Enter Host ID");
+
+            $('menu').classList.remove('active');
+            $('client-screen').classList.add('active');
+
+            peer = new Peer(); // Auto ID
+            peer.on('open', () => {
+                conn = peer.connect(hostId);
+                
+                conn.on('open', () => {
+                    console.log("Connected to Host");
+                    initClientControls();
+                });
+
+                conn.on('data', (data) => {
+                    updateClientUI(data);
+                });
+                
+                conn.on('error', (err) => alert("Connection Error: " + err));
+            });
+        }
+
+        function initClientControls() {
+            // Trackpad
+            const trackpad = $('trackpad');
+            let lastX = null, lastY = null;
+
+            trackpad.addEventListener('touchstart', (e) => {
+                lastX = e.touches[0].clientX;
+                lastY = e.touches[0].clientY;
+            }, {passive: false});
+
+            trackpad.addEventListener('touchmove', (e) => {
+                e.preventDefault(); // Prevent scroll
+                const cx = e.touches[0].clientX;
+                const cy = e.touches[0].clientY;
+                const dx = cx - lastX;
+                const dy = cy - lastY;
+                lastX = cx;
+                lastY = cy;
+                conn.send({ type: 'move', dx, dy });
+            }, {passive: false});
+
+            // Fire Button
+            const btnFire = $('btn-fire');
+            btnFire.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                conn.send({ type: 'fireState', val: true });
+            });
+            btnFire.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                conn.send({ type: 'fireState', val: false });
+            });
+
+            // Shield Button
+            const btnShield = $('btn-shield');
+            btnShield.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                conn.send({ type: 'shieldState', val: true });
+                btnShield.classList.add('active-shield');
+            });
+            btnShield.addEventListener('touchend', (e) => {
+                e.preventDefault();
+                conn.send({ type: 'shieldState', val: false });
+                btnShield.classList.remove('active-shield');
+            });
+
+            // Vent Button
+            const btnVent = $('btn-vent');
+            btnVent.addEventListener('touchstart', (e) => {
+                conn.send({ type: 'vent' });
+                if(navigator.vibrate) navigator.vibrate(50);
+            });
+        }
+
+        function updateClientUI(data) {
+            if (data.type === 'status') {
+                // Update Heat Bar
+                $('heat-fill').style.width = data.heat + '%';
+                $('shield-fill').style.width = data.shield + '%';
+
+                const btnFire = $('btn-fire');
+                const btnVent = $('btn-vent');
+
+                if (data.overheated) {
+                    btnFire.classList.add('overheated');
+                    btnFire.innerText = "OVERHEAT";
+                    btnVent.style.display = "block"; // Show vent button
+                    if(navigator.vibrate) navigator.vibrate(50); // Haptic feedback warning
+                } else {
+                    btnFire.classList.remove('overheated');
+                    btnFire.innerText = "FIRE";
+                    btnVent.style.display = "none";
+                }
+
+                // Haptic on damage
+                if (data.health < 100 && Math.random() < 0.1) {
+                    if(navigator.vibrate) navigator.vibrate(200);
+                }
+            }
+        }
+    </script>
+</body>
+</html>
